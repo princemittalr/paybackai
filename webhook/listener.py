@@ -256,6 +256,31 @@ async def get_batch_run(run_id: str):
     return get_batch_summary(run_id)
 
 
+@app.post("/api/admin/seed")
+async def admin_seed():
+    """Seed the database with synthetic failed payments."""
+    try:
+        from data.synthetic import seed_database
+        payments = seed_database()
+        return {
+            "status": "success",
+            "message": f"Seeded {len(payments)} payments",
+            "total": len(payments)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/admin/run-batch")
+async def admin_run_batch(limit: int = 60):
+    """Run the recovery batch on Railway."""
+    try:
+        from main import run_batch
+        result = run_batch(limit=limit)
+        return {"status": "success", "result": result}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("webhook.listener:app", host="0.0.0.0", port=8000, reload=True)
