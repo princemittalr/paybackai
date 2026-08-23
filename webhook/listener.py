@@ -30,6 +30,19 @@ app.add_middleware(
 
 init_db()
 
+# Auto-seed on startup if database is empty
+def _auto_seed():
+    conn = get_connection()
+    count = conn.execute("SELECT COUNT(*) FROM failed_payments").fetchone()[0]
+    conn.close()
+    if count == 0:
+        print("[STARTUP] Database empty — auto-seeding 60 synthetic payments...")
+        from data.synthetic import seed_database
+        seed_database()
+        print("[STARTUP] Seed complete.")
+
+_auto_seed()
+
 
 def verify_webhook_signature(body: bytes, signature: str) -> bool:
     secret = os.getenv("WEBHOOK_SECRET", "")
