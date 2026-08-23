@@ -281,6 +281,19 @@ async def admin_run_batch(limit: int = 60):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+
+@app.post("/api/admin/reset")
+async def admin_reset():
+    """Reset all payments to pending for re-processing."""
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE failed_payments SET status='pending', retry_count=0, last_attempted_at=NULL")
+        conn.commit()
+        count = conn.execute("SELECT COUNT(*) FROM failed_payments").fetchone()[0]
+        return {"status": "success", "message": f"Reset {count} payments to pending"}
+    finally:
+        conn.close()
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("webhook.listener:app", host="0.0.0.0", port=8000, reload=True)
