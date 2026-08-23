@@ -5,7 +5,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+_api_key = os.getenv("GROQ_API_KEY")
+if not _api_key:
+    raise RuntimeError("GROQ_API_KEY environment variable is not set")
+client = Groq(api_key=_api_key)
 
 SYSTEM_PROMPT = """You are PaybackAI's payment failure classifier. Your job is to analyze failed payments and determine:
 1. The root cause category

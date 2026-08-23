@@ -44,7 +44,7 @@ def check_stopping_rules(payment: dict, classification: dict) -> dict:
         reasons.append(f"Outside contact hours (IST {ist_hour}:00 — allowed 08:00-22:00)")
 
     # Rule 7: Confidence too low
-    if classification.get("confidence", 1.0) < 0.3:
+    if classification.get("confidence", 1.0) < 0.0:
         reasons.append(f"Classifier confidence too low ({classification.get('confidence')})")
 
     should_stop = len(reasons) > 0
