@@ -9,3 +9,5 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+dashboard/node_modules/
+dashboard/.next/
