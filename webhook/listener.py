@@ -31,17 +31,32 @@ app.add_middleware(
 init_db()
 
 # Auto-seed on startup if database is empty
-def _auto_seed():
+def _auto_seed_and_run():
     conn = get_connection()
     count = conn.execute("SELECT COUNT(*) FROM failed_payments").fetchone()[0]
+    pending = conn.execute("SELECT COUNT(*) FROM failed_payments WHERE status='pending'").fetchone()[0]
     conn.close()
+
     if count == 0:
-        print("[STARTUP] Database empty — auto-seeding 60 synthetic payments...")
+        print("[STARTUP] Database empty — seeding 60 payments...")
         from data.synthetic import seed_database
         seed_database()
-        print("[STARTUP] Seed complete.")
+        print("[STARTUP] Seed complete — running batch recovery...")
+        import threading
+        def run_batch_bg():
+            from main import run_batch
+            run_batch(limit=60)
+        threading.Thread(target=run_batch_bg, daemon=True).start()
+        print("[STARTUP] Batch recovery started in background.")
+    elif pending > 0:
+        print(f"[STARTUP] Found {pending} pending payments — running batch recovery...")
+        import threading
+        def run_batch_bg():
+            from main import run_batch
+            run_batch(limit=pending)
+        threading.Thread(target=run_batch_bg, daemon=True).start()
 
-_auto_seed()
+_auto_seed_and_run()
 
 
 def verify_webhook_signature(body: bytes, signature: str) -> bool:
