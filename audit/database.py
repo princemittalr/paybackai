@@ -30,7 +30,12 @@ def init_db():
             created_at TEXT,
             status TEXT DEFAULT 'pending',
             retry_count INTEGER DEFAULT 0,
-            last_attempted_at TEXT
+            last_attempted_at TEXT,
+            scenario_type TEXT DEFAULT 'payment_failure',
+            promise_to_pay TEXT,
+            promise_due_date TEXT,
+            promise_kept INTEGER DEFAULT 0,
+            extra_data TEXT
         );
 
         CREATE TABLE IF NOT EXISTS recovery_actions (
@@ -56,7 +61,10 @@ def init_db():
             skipped INTEGER DEFAULT 0,
             total_amount_at_risk INTEGER DEFAULT 0,
             total_amount_recovered INTEGER DEFAULT 0,
-            status TEXT DEFAULT 'running'
+            status TEXT DEFAULT 'running',
+            payment_failures_processed INTEGER DEFAULT 0,
+            checkout_abandonments_processed INTEGER DEFAULT 0,
+            subscription_failures_processed INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -68,7 +76,55 @@ def init_db():
             timestamp TEXT NOT NULL,
             run_id TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS promise_tracker (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_id TEXT NOT NULL,
+            customer_email TEXT,
+            customer_contact TEXT,
+            amount INTEGER,
+            promised_at TEXT NOT NULL,
+            promise_due_date TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            followed_up_at TEXT,
+            resolved_at TEXT,
+            FOREIGN KEY (payment_id) REFERENCES failed_payments(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS intervention_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT,
+            intervention_type TEXT NOT NULL,
+            total_sent INTEGER DEFAULT 0,
+            total_recovered INTEGER DEFAULT 0,
+            total_amount_recovered INTEGER DEFAULT 0,
+            recorded_at TEXT NOT NULL
+        );
     """)
+
+    # Migrate existing DB — add new columns if missing
+    existing_cols = [row[1] for row in cursor.execute("PRAGMA table_info(failed_payments)").fetchall()]
+    new_cols = {
+        "scenario_type": "TEXT DEFAULT 'payment_failure'",
+        "promise_to_pay": "TEXT",
+        "promise_due_date": "TEXT",
+        "promise_kept": "INTEGER DEFAULT 0",
+        "extra_data": "TEXT"
+    }
+    for col, col_type in new_cols.items():
+        if col not in existing_cols:
+            cursor.execute(f"ALTER TABLE failed_payments ADD COLUMN {col} {col_type}")
+            print(f"[DB] Migrated: added column {col}")
+
+    existing_batch_cols = [row[1] for row in cursor.execute("PRAGMA table_info(batch_runs)").fetchall()]
+    new_batch_cols = {
+        "payment_failures_processed": "INTEGER DEFAULT 0",
+        "checkout_abandonments_processed": "INTEGER DEFAULT 0",
+        "subscription_failures_processed": "INTEGER DEFAULT 0"
+    }
+    for col, col_type in new_batch_cols.items():
+        if col not in existing_batch_cols:
+            cursor.execute(f"ALTER TABLE batch_runs ADD COLUMN {col} {col_type}")
 
     conn.commit()
     conn.close()

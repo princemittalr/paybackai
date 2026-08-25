@@ -10,60 +10,75 @@ if not _api_key:
     raise RuntimeError("GROQ_API_KEY environment variable is not set")
 client = Groq(api_key=_api_key)
 
-SYSTEM_PROMPT = """You are PaybackAI's payment failure classifier. Your job is to analyze failed payments and determine:
-1. The root cause category
+SYSTEM_PROMPT = """You are PaybackAI's revenue recovery classifier. You analyze three types of revenue loss events:
+
+1. PAYMENT_FAILURE — A payment attempt was made but failed
+2. CHECKOUT_ABANDONMENT — A customer started checkout but never completed payment
+3. SUBSCRIPTION_FAILURE — A recurring subscription charge failed
+
+For each event, determine:
+1. Root cause category
 2. Recovery potential
-3. Recommended intervention
+3. Best intervention
 4. Clear reasoning
 
-You must respond ONLY with valid JSON. No explanation outside the JSON.
+You must respond ONLY with valid JSON. No explanation outside JSON.
 
 Root cause categories:
-- INSUFFICIENT_FUNDS: Customer doesn't have enough balance
-- CARD_EXPIRED: Card expiry date has passed
+- INSUFFICIENT_FUNDS: Not enough balance
+- CARD_EXPIRED: Card expiry has passed
 - BANK_DECLINED: Bank blocked the transaction
-- INVALID_DETAILS: Wrong card number, CVV, or expiry entered
-- NETWORK_ERROR: Technical/gateway timeout, retry likely to succeed
-- FRAUD_SUSPECTED: Risk systems flagged this transaction
-- UNKNOWN: Cannot determine from available information
+- INVALID_DETAILS: Wrong card/UPI details
+- NETWORK_ERROR: Technical/gateway timeout
+- FRAUD_SUSPECTED: Risk systems flagged this
+- CART_ABANDONED: Customer left without paying
+- UPI_TIMEOUT: UPI intent not approved in time
+- MANDATE_EXPIRED: Subscription mandate expired
+- AUTO_DEBIT_FAILED: Bank blocked auto-debit
+- UNKNOWN: Cannot determine
 
-Recovery potential:
-- HIGH: Strong chance of recovery with right intervention
-- MEDIUM: Possible but uncertain
-- LOW: Unlikely but worth one attempt
-- NONE: Do not attempt recovery
+Recovery potential: HIGH | MEDIUM | LOW | NONE
 
 Interventions:
-- RETRY_PAYMENT: Attempt payment again (only for NETWORK_ERROR or GATEWAY issues)
-- SEND_EMAIL: Send recovery email to customer
-- SEND_SMS: Send SMS nudge (for high-value payments)
-- SEND_WHATSAPP: Send WhatsApp message in Hinglish for Indian customers
+- RETRY_PAYMENT: Retry immediately (network errors only)
+- SEND_EMAIL: Recovery email
+- SEND_SMS: SMS nudge
+- SEND_WHATSAPP: Hinglish WhatsApp message
+- SEND_CART_RECOVERY: Abandoned cart recovery with deep link
+- RETRY_MANDATE: Retry subscription mandate
 - ESCALATE_HUMAN: Flag for manual review
-- BLACKLIST: Mark as fraud, do not recover
+- BLACKLIST: Mark as fraud
 - NO_ACTION: Nothing can be done
 
-Your JSON response must follow this exact schema:
+Response schema:
 {
   "root_cause": "CATEGORY",
   "confidence": 0.0-1.0,
   "recovery_potential": "HIGH|MEDIUM|LOW|NONE",
   "recommended_intervention": "INTERVENTION",
-  "reasoning": "One clear sentence explaining the decision",
+  "reasoning": "One clear sentence",
   "risk_flags": [],
-  "estimated_recovery_probability": 0.0-1.0
+  "estimated_recovery_probability": 0.0-1.0,
+  "urgency": "immediate|within_hour|within_day|low",
+  "promise_to_pay_likely": true|false
 }"""
 
 
 def classify_failure(payment: dict) -> dict:
-    user_message = f"""Analyze this failed payment and classify it:
+    scenario_type = payment.get("scenario_type", "payment_failure")
+    amount_rupees = payment.get("amount", 0) / 100
 
+    user_message = f"""Analyze this revenue loss event:
+
+Scenario Type: {scenario_type.upper()}
 Payment ID: {payment['id']}
-Amount: ₹{payment['amount'] / 100:.2f}
+Amount: ₹{amount_rupees:.2f}
 Failure Reason: {payment['failure_reason']}
 Failure Code: {payment['failure_code']}
 Customer Email: {payment['customer_email']}
 Retry Count: {payment['retry_count']}
 Created At: {payment['created_at']}
+Extra Data: {payment.get('extra_data', 'N/A')}
 
 Respond with JSON only."""
 
@@ -89,7 +104,7 @@ Respond with JSON only."""
         ]
         for key in required_keys:
             if key not in result:
-                raise ValueError(f"Missing key in LLM response: {key}")
+                result[key] = "UNKNOWN" if key == "root_cause" else ([] if key == "risk_flags" else 0.5)
 
         return {
             "payment_id": payment["id"],
@@ -107,7 +122,9 @@ Respond with JSON only."""
                 "recommended_intervention": "ESCALATE_HUMAN",
                 "reasoning": f"LLM returned invalid JSON: {str(e)}",
                 "risk_flags": ["parse_error"],
-                "estimated_recovery_probability": 0.1
+                "estimated_recovery_probability": 0.1,
+                "urgency": "low",
+                "promise_to_pay_likely": False
             },
             "raw_response": None
         }
@@ -122,23 +139,9 @@ Respond with JSON only."""
                 "recommended_intervention": "ESCALATE_HUMAN",
                 "reasoning": f"Classification error: {str(e)}",
                 "risk_flags": ["system_error"],
-                "estimated_recovery_probability": 0.1
+                "estimated_recovery_probability": 0.1,
+                "urgency": "low",
+                "promise_to_pay_likely": False
             },
             "raw_response": None
         }
-
-
-if __name__ == "__main__":
-    test_payment = {
-        "id": "pay_test_001",
-        "amount": 99900,
-        "failure_reason": "Your payment was declined due to insufficient funds.",
-        "failure_code": "BAD_REQUEST_ERROR",
-        "customer_email": "test@gmail.com",
-        "retry_count": 0,
-        "created_at": "2024-01-15T10:30:00"
-    }
-
-    print("[TEST] Classifying a single payment...")
-    result = classify_failure(test_payment)
-    print(json.dumps(result, indent=2))

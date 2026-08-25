@@ -177,43 +177,49 @@ async def razorpay_webhook(
 async def get_stats():
     conn = get_connection()
     try:
-        total = conn.execute(
-            "SELECT COUNT(*) FROM failed_payments"
-        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM failed_payments").fetchone()[0]
+        recovered = conn.execute("SELECT COUNT(*) FROM failed_payments WHERE status='recovered'").fetchone()[0]
+        skipped = conn.execute("SELECT COUNT(*) FROM failed_payments WHERE status='skipped'").fetchone()[0]
+        failed = conn.execute("SELECT COUNT(*) FROM failed_payments WHERE status='failed_recovery'").fetchone()[0]
+        pending = conn.execute("SELECT COUNT(*) FROM failed_payments WHERE status='pending'").fetchone()[0]
+        total_at_risk = conn.execute("SELECT COALESCE(SUM(amount),0) FROM failed_payments").fetchone()[0]
+        total_recovered = conn.execute("SELECT COALESCE(SUM(amount),0) FROM failed_payments WHERE status='recovered'").fetchone()[0]
 
-        recovered = conn.execute(
-            "SELECT COUNT(*) FROM failed_payments WHERE status='recovered'"
-        ).fetchone()[0]
+        # Scenario breakdown
+        scenario_breakdown = {}
+        for stype in ["payment_failure", "checkout_abandonment", "subscription_failure"]:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM failed_payments WHERE scenario_type=?", (stype,)
+            ).fetchone()[0]
+            rec = conn.execute(
+                "SELECT COUNT(*) FROM failed_payments WHERE scenario_type=? AND status='recovered'", (stype,)
+            ).fetchone()[0]
+            amt = conn.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM failed_payments WHERE scenario_type=? AND status='recovered'", (stype,)
+            ).fetchone()[0]
+            scenario_breakdown[stype] = {"total": count, "recovered": rec, "amount_recovered": amt}
 
-        skipped = conn.execute(
-            "SELECT COUNT(*) FROM failed_payments WHERE status='skipped'"
-        ).fetchone()[0]
+        # Intervention effectiveness
+        intervention_stats = conn.execute(
+            """SELECT action_type,
+               COUNT(*) as total,
+               SUM(CASE WHEN outcome LIKE '%DISPATCHED%' OR outcome IN ('SUCCESS','SIMULATED_RETRY','MANDATE_RETRY_QUEUED') THEN 1 ELSE 0 END) as successful
+               FROM recovery_actions
+               GROUP BY action_type
+               ORDER BY total DESC"""
+        ).fetchall()
 
-        failed = conn.execute(
-            "SELECT COUNT(*) FROM failed_payments WHERE status='failed_recovery'"
-        ).fetchone()[0]
-
-        pending = conn.execute(
-            "SELECT COUNT(*) FROM failed_payments WHERE status='pending'"
-        ).fetchone()[0]
-
-        total_at_risk = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM failed_payments"
-        ).fetchone()[0]
-
-        total_recovered = conn.execute(
-            "SELECT COALESCE(SUM(amount), 0) FROM failed_payments WHERE status='recovered'"
-        ).fetchone()[0]
+        # Promise tracker
+        promises_total = conn.execute("SELECT COUNT(*) FROM promise_tracker").fetchone()[0]
+        promises_pending = conn.execute("SELECT COUNT(*) FROM promise_tracker WHERE status='pending'").fetchone()[0]
 
         recent_runs = conn.execute(
-            """
-            SELECT run_id, started_at, completed_at, total_payments,
-                   recovered, failed_recovery, skipped,
-                   total_amount_at_risk, total_amount_recovered, status
-            FROM batch_runs
-            ORDER BY started_at DESC
-            LIMIT 5
-            """
+            """SELECT run_id, started_at, completed_at, total_payments,
+               recovered, failed_recovery, skipped,
+               total_amount_at_risk, total_amount_recovered, status,
+               payment_failures_processed, checkout_abandonments_processed,
+               subscription_failures_processed
+               FROM batch_runs ORDER BY started_at DESC LIMIT 5"""
         ).fetchall()
 
         return {
@@ -228,6 +234,12 @@ async def get_stats():
                 "total_amount_recovered_paise": total_recovered,
                 "total_amount_at_risk_rupees": round(total_at_risk / 100, 2),
                 "total_amount_recovered_rupees": round(total_recovered / 100, 2),
+            },
+            "scenario_breakdown": scenario_breakdown,
+            "intervention_effectiveness": [dict(r) for r in intervention_stats],
+            "promise_tracker": {
+                "total": promises_total,
+                "pending": promises_pending
             },
             "recent_runs": [dict(r) for r in recent_runs]
         }
