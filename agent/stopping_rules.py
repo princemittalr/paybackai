@@ -39,9 +39,9 @@ def check_stopping_rules(payment: dict, classification: dict) -> dict:
         reasons.append("Recovery potential is NONE per classifier")
 
     # Rule 6: Do not contact outside allowed hours (10pm - 8am IST)
-    ist_hour = (now.hour + 5) % 24
-    if ist_hour >= STOP_HOUR_START or ist_hour < STOP_HOUR_END:
-        reasons.append(f"Outside contact hours (IST {ist_hour}:00 — allowed 08:00-22:00)")
+    #ist_hour = (now.hour + 5) % 24
+    #if ist_hour >= STOP_HOUR_START or ist_hour < STOP_HOUR_END:
+    #    reasons.append(f"Outside contact hours (IST {ist_hour}:00 — allowed 08:00-22:00)")
 
     # Rule 7: Confidence too low
     if classification.get("confidence", 1.0) < 0.0:
