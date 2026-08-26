@@ -324,7 +324,6 @@ async def admin_run_batch(limit: int = 60):
 
 @app.post("/api/admin/reset")
 async def admin_reset():
-    """Reset all payments to pending for re-processing."""
     conn = get_connection()
     try:
         conn.execute("UPDATE failed_payments SET status='pending', retry_count=0, last_attempted_at=NULL")
@@ -333,6 +332,35 @@ async def admin_reset():
         return {"status": "success", "message": f"Reset {count} payments to pending"}
     finally:
         conn.close()
+
+
+@app.post("/api/admin/hard-reset")
+async def admin_hard_reset():
+    """Wipe DB and reseed with fresh 80 payments including all scenario types."""
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM failed_payments")
+        conn.execute("DELETE FROM recovery_actions")
+        conn.execute("DELETE FROM batch_runs")
+        conn.execute("DELETE FROM audit_log")
+        conn.execute("DELETE FROM promise_tracker")
+        conn.commit()
+    finally:
+        conn.close()
+
+    from data.synthetic import seed_database
+    payments = seed_database()
+
+    scenario_counts = {}
+    for p in payments:
+        st = p.get("scenario_type", "unknown")
+        scenario_counts[st] = scenario_counts.get(st, 0) + 1
+
+    return {
+        "status": "success",
+        "message": f"Hard reset complete — seeded {len(payments)} fresh payments",
+        "scenario_breakdown": scenario_counts
+    }
 
 if __name__ == "__main__":
     import uvicorn
