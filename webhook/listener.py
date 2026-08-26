@@ -250,31 +250,25 @@ async def get_stats():
 @app.get("/api/payments")
 async def get_payments(
     status: str = None,
+    scenario_type: str = None,
     limit: int = 20,
     offset: int = 0
 ):
     conn = get_connection()
     try:
+        conditions = []
+        params = []
         if status:
-            payments = conn.execute(
-                """
-                SELECT * FROM failed_payments
-                WHERE status = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (status, limit, offset)
-            ).fetchall()
-        else:
-            payments = conn.execute(
-                """
-                SELECT * FROM failed_payments
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (limit, offset)
-            ).fetchall()
-
+            conditions.append("status = ?")
+            params.append(status)
+        if scenario_type:
+            conditions.append("scenario_type = ?")
+            params.append(scenario_type)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        payments = conn.execute(
+            f"SELECT * FROM failed_payments {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset)
+        ).fetchall()
         return {"payments": [dict(p) for p in payments]}
     finally:
         conn.close()
