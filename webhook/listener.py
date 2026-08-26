@@ -356,6 +356,34 @@ async def admin_hard_reset():
         "scenario_breakdown": scenario_counts
     }
 
+@app.get("/api/debug/groq")
+async def debug_groq():
+    """Test Groq API key directly."""
+    import os
+    from groq import Groq
+    api_key = os.getenv("GROQ_API_KEY", "NOT_SET")
+    key_preview = api_key[:15] + "..." if len(api_key) > 15 else api_key
+    try:
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": "Reply with just: OK"}],
+            max_tokens=10
+        )
+        return {
+            "status": "success",
+            "key_preview": key_preview,
+            "key_length": len(api_key),
+            "response": response.choices[0].message.content
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "key_preview": key_preview,
+            "key_length": len(api_key),
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("webhook.listener:app", host="0.0.0.0", port=8000, reload=True)
