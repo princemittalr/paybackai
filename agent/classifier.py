@@ -91,10 +91,11 @@ Respond with JSON only."""
             ],
             temperature=0.1,
             max_tokens=512,
-            response_format={"type": "json_object"}
         )
 
         raw = response.choices[0].message.content
+        if not raw or not raw.strip():
+            raise ValueError("LLM returned empty response")
         result = json.loads(raw)
 
         required_keys = [
